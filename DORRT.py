@@ -2,6 +2,7 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import math
+import requests
 
 # === Helper function for projecting spread ===
 def project_coordinates(lat, lon, distance_km, bearing_degrees):
@@ -18,6 +19,13 @@ def project_coordinates(lat, lon, distance_km, bearing_degrees):
                              math.cos(distance_km / R) - math.sin(lat1) * math.sin(lat2))
 
     return math.degrees(lat2), math.degrees(lon2)
+
+# === Get real wind data ===
+def get_wind_data(lat, lon, api_key):
+    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
+    r = requests.get(url)
+    data = r.json()
+    return data["wind"].get("speed", 0), data["wind"].get("deg", 0)
 
 # === App setup ===
 st.set_page_config(page_title="DORRT: Disaster Orbit Response & Relief Tool")
@@ -87,6 +95,12 @@ if map_data and map_data["last_clicked"]:
 
     m = folium.Map(location=[lat, lon], zoom_start=6)
 
+    # Fetch wind data
+    wind_api_key = st.secrets["OPENWEATHER_API_KEY"] if "OPENWEATHER_API_KEY" in st.secrets else "YOUR_API_KEY"
+    wind_speed, wind_deg = get_wind_data(lat, lon, wind_api_key)
+    st.markdown(f"**Wind Speed:** {wind_speed} m/s")
+    st.markdown(f"**Wind Direction:** {wind_deg}°")
+
     # Disaster center + radius
     folium.Circle(
         location=[lat, lon],
@@ -105,20 +119,40 @@ if map_data and map_data["last_clicked"]:
         "South": 180,
         "West": 270
     }
-    severity = {
-        "Wildfire": ["High", "Medium", "Low", "Low"],
-        "Flood": ["Medium", "High", "Medium", "Low"],
-        "Blizzard": ["High", "Low", "High", "Medium"],
-        "Tsunami": ["High", "High", "Medium", "Medium"]
-        # Extend for others
-    }
-    levels = severity.get(disaster, ["Low"] * 4)
 
-    # Arrow projection
-    for i, (dir_name, bearing) in enumerate(directions.items()):
-        end_lat, end_lon = project_coordinates(lat, lon, radius_km * (1.2 + i*0.2), bearing)
-        color = "red" if levels[i] == "High" else "orange" if levels[i] == "Medium" else "yellow"
-        folium.PolyLine(locations=[[lat, lon], [end_lat, end_lon]], color=color, weight=4, tooltip=f"Spread: {levels[i]} toward {dir_name}").add_to(m)
+    for dir_name, bearing in directions.items():
+        end_lat, end_lon = project_coordinates(lat, lon, radius_km * 1.5, bearing)
+
+        # Wind-based spread estimation
+        angle_diff = abs(bearing - wind_deg) % 360
+        angle_diff = min(angle_diff, 360 - angle_diff)  # Shortest distance around circle
+
+        if angle_diff < 30:
+            wind_spread = "High"
+        elif angle_diff < 90:
+            wind_spread = "Medium"
+        else:
+            wind_spread = "Low"
+
+        # Placeholder slope logic (replace with elevation API later)
+        slope = 0.05
+        if slope > 0.1:
+            terrain_spread = "High"
+        elif slope > 0.03:
+            terrain_spread = "Medium"
+        else:
+            terrain_spread = "Low"
+
+        # Combine both
+        final_spread = max(wind_spread, terrain_spread)
+        color = "red" if final_spread == "High" else "orange" if final_spread == "Medium" else "yellow"
+
+        folium.PolyLine(
+            locations=[[lat, lon], [end_lat, end_lon]],
+            color=color,
+            weight=4,
+            tooltip=f"Spread: {final_spread} toward {dir_name}"
+        ).add_to(m)
 
     st_folium(m, width=700, height=500)
 else:
