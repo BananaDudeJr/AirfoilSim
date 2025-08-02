@@ -1,42 +1,93 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
+import math
 
-# Set up page
+# === Helper function for projecting spread ===
+def project_coordinates(lat, lon, distance_km, bearing_degrees):
+    R = 6371.0
+    bearing = math.radians(bearing_degrees)
+
+    lat1 = math.radians(lat)
+    lon1 = math.radians(lon)
+
+    lat2 = math.asin(math.sin(lat1) * math.cos(distance_km / R) +
+                     math.cos(lat1) * math.sin(distance_km / R) * math.cos(bearing))
+
+    lon2 = lon1 + math.atan2(math.sin(bearing) * math.sin(distance_km / R) * math.cos(lat1),
+                             math.cos(distance_km / R) - math.sin(lat1) * math.sin(lat2))
+
+    return math.degrees(lat2), math.degrees(lon2)
+
+# === App setup ===
 st.set_page_config(page_title="DORRT: Disaster Orbit Response & Relief Tool")
 st.title("🌍 DORRT: Disaster Orbit Response & Relief Tool")
 
-# Disaster selection
-disaster = st.selectbox("Select Disaster Type", ["Wildfire", "Flood", "Hurricane", "Earthquake", "Tornado"])
+# === Disaster settings ===
+disaster = st.selectbox("Select Disaster Type", ["Wildfire", "Flood", "Hurricane", "Earthquake", "Tornado", "Blizzard", "Drought", "Tsunami"])
 radius_km = st.slider("Disaster Impact Radius (km)", 10, 300, 80)
 
+# === Disaster color settings ===
 disaster_styles = {
     "Wildfire": {"color": "red"},
     "Flood": {"color": "blue"},
-    "Hurricane": {"color": "gray"},
+    "Hurricane": {"color": "teal"},
     "Earthquake": {"color": "orange"},
-    "Tornado": {"color": "purple"}
+    "Tornado": {"color": "gray"},
+    "Blizzard": {"color": "white"},
+    "Drought": {"color": "tan"},
+    "Tsunami": {"color": "purple"}
 }
 
-# Initial map
+# === Satellite database ===
+satellites = {
+    "Landsat 8": {"orbit": "Sun-synchronous", "altitude_km": 705, "resolution": "15m", "revisit_time": "16 days", "best_for": ["Wildfire", "Flood", "Hurricane"]},
+    "Sentinel-1": {"orbit": "Polar", "altitude_km": 693, "resolution": "5–20m", "revisit_time": "6–12 days", "best_for": ["Flood", "Earthquake", "Tsunami"]},
+    "GOES-16": {"orbit": "Geostationary", "altitude_km": 35786, "resolution": "500m–2km", "revisit_time": "Real-time", "best_for": ["Hurricane", "Blizzard", "Tornado"]},
+    "Aqua": {"orbit": "Sun-synchronous", "altitude_km": 705, "resolution": "1km", "revisit_time": "Daily", "best_for": ["Drought", "Wildfire"]},
+}
+
+recommended = [name for name, data in satellites.items() if disaster in data["best_for"]]
+auto_selected = recommended[0] if recommended else None
+
+st.markdown("---")
+st.subheader("🚁️ Satellite Selection")
+
+override = st.checkbox("Override Recommended Satellite")
+
+if override:
+    selected_sat = st.selectbox("Select Satellite", list(satellites.keys()))
+else:
+    if auto_selected:
+        st.success(f"Recommended Satellite: {auto_selected}")
+        selected_sat = auto_selected
+    else:
+        st.warning("No satellite recommendation available for this disaster.")
+        selected_sat = st.selectbox("Select Satellite", list(satellites.keys()))
+
+if selected_sat:
+    data = satellites[selected_sat]
+    st.markdown(f"**Orbit Type:** {data['orbit']}")
+    st.markdown(f"**Altitude:** {data['altitude_km']} km")
+    st.markdown(f"**Resolution:** {data['resolution']}")
+    st.markdown(f"**Revisit Time:** {data['revisit_time']}")
+    st.markdown(f"**Best For:** {', '.join(data['best_for'])}")
+
+# === Initial map ===
 m = folium.Map(location=[20.0, 0.0], zoom_start=2)
 folium.LatLngPopup().add_to(m)
 
-# Show map and capture click
 st.markdown("Click on the map to set the disaster center.")
 map_data = st_folium(m, width=700, height=500)
 
-# If user clicked the map
 if map_data and map_data["last_clicked"]:
     lat = map_data["last_clicked"]["lat"]
     lon = map_data["last_clicked"]["lng"]
-
     st.success(f"Disaster Center Set At: ({lat:.4f}, {lon:.4f})")
 
-    # Redraw map centered on clicked point
     m = folium.Map(location=[lat, lon], zoom_start=6)
 
-    # Add circle and marker
+    # Disaster center + radius
     folium.Circle(
         location=[lat, lon],
         radius=radius_km * 1000,
@@ -45,8 +96,29 @@ if map_data and map_data["last_clicked"]:
         fill_opacity=0.4,
         popup=f"{disaster} Simulation"
     ).add_to(m)
-
     folium.Marker([lat, lon], popup="Disaster Center").add_to(m)
+
+    # === AI spread logic with arrows ===
+    directions = {
+        "North": 0,
+        "East": 90,
+        "South": 180,
+        "West": 270
+    }
+    severity = {
+        "Wildfire": ["High", "Medium", "Low", "Low"],
+        "Flood": ["Medium", "High", "Medium", "Low"],
+        "Blizzard": ["High", "Low", "High", "Medium"],
+        "Tsunami": ["High", "High", "Medium", "Medium"]
+        # Extend for others
+    }
+    levels = severity.get(disaster, ["Low"] * 4)
+
+    # Arrow projection
+    for i, (dir_name, bearing) in enumerate(directions.items()):
+        end_lat, end_lon = project_coordinates(lat, lon, radius_km * (1.2 + i*0.2), bearing)
+        color = "red" if levels[i] == "High" else "orange" if levels[i] == "Medium" else "yellow"
+        folium.PolyLine(locations=[[lat, lon], [end_lat, end_lon]], color=color, weight=4, tooltip=f"Spread: {levels[i]} toward {dir_name}").add_to(m)
 
     st_folium(m, width=700, height=500)
 else:
