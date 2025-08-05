@@ -116,21 +116,19 @@ if map_data and map_data["last_clicked"]:
     # Fetch wind data
     
     # === Wind data fetch with debug ===
-if "OPENWEATHER_API_KEY" in st.secrets:
-    wind_api_key = st.secrets["OPENWEATHER_API_KEY"]
-else:
-    st.error("❌ OpenWeather API key not found. Please add OPENWEATHER_API_KEY to your Streamlit secrets.")
-    wind_api_key = None
+    # === Wind data fetch with debug ===
+    if "OPENWEATHER_API_KEY" in st.secrets:
+        wind_api_key = st.secrets["OPENWEATHER_API_KEY"]
+        wind_speed, wind_deg = get_wind_data(lat, lon, wind_api_key)
 
-if wind_api_key:
-    wind_speed, wind_deg = get_wind_data(lat, lon, wind_api_key)
-    
-    if wind_speed == 0 and wind_deg == 0:
-        st.warning("⚠️ Wind data could not be retrieved or is zero. Check your API key and location.")
+        if wind_speed == 0 and wind_deg == 0:
+            st.warning("⚠️ Wind data could not be retrieved or is zero. Check your API key and location.")
+        else:
+            st.markdown(f"**Wind Speed:** {wind_speed} m/s")
+            st.markdown(f"**Wind Direction:** {wind_deg}°")
     else:
-        st.markdown(f"**Wind Speed:** {wind_speed} m/s")
-        st.markdown(f"**Wind Direction:** {wind_deg}°")
-
+        st.error("❌ OpenWeather API key not found. Please add OPENWEATHER_API_KEY to your Streamlit secrets.")
+        wind_speed, wind_deg = 0, 0  # fallback so your spread logic still works
 
     # Disaster center + radius
     folium.Circle(
