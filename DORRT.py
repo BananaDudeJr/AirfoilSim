@@ -22,10 +22,18 @@ def project_coordinates(lat, lon, distance_km, bearing_degrees):
 
 # === Get real wind data ===
 def get_wind_data(lat, lon, api_key):
-    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
-    r = requests.get(url)
-    data = r.json()
-    return data["wind"].get("speed", 0), data["wind"].get("deg", 0)
+    import requests
+
+    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}"
+    response = requests.get(url)
+    data = response.json()
+
+    wind_data = data.get("wind", {})  # use empty dict if "wind" is missing
+    speed = wind_data.get("speed", 0)
+    deg = wind_data.get("deg", 0)
+
+    return speed, deg
+
 
 # === App setup ===
 st.set_page_config(page_title="DORRT: Disaster Orbit Response & Relief Tool")
