@@ -21,16 +21,26 @@ def project_coordinates(lat, lon, distance_km, bearing_degrees):
     return math.degrees(lat2), math.degrees(lon2)
 
 # === Get real wind data ===
+import requests
+
 def get_wind_data(lat, lon, api_key):
-    import requests
-
-    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}"
+    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
     response = requests.get(url)
-    data = response.json()
+    
+    try:
+        data = response.json()
+    except:
+        return 0, 0  # fallback if it's not JSON
 
-    wind_data = data.get("wind", {})  # use empty dict if "wind" is missing
-    speed = wind_data.get("speed", 0)
-    deg = wind_data.get("deg", 0)
+    # Debug: print full response to see what's going wrong
+    print("API response:", data)
+
+    # Check if request failed
+    if response.status_code != 200 or "wind" not in data:
+        return 0, 0
+
+    speed = data["wind"].get("speed", 0)
+    deg = data["wind"].get("deg", 0)
 
     return speed, deg
 
