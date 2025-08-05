@@ -114,10 +114,23 @@ if map_data and map_data["last_clicked"]:
     m = folium.Map(location=[lat, lon], zoom_start=6)
 
     # Fetch wind data
-    wind_api_key = st.secrets["OPENWEATHER_API_KEY"] if "OPENWEATHER_API_KEY" in st.secrets else "YOUR_API_KEY"
+    
+    # === Wind data fetch with debug ===
+if "OPENWEATHER_API_KEY" in st.secrets:
+    wind_api_key = st.secrets["OPENWEATHER_API_KEY"]
+else:
+    st.error("❌ OpenWeather API key not found. Please add OPENWEATHER_API_KEY to your Streamlit secrets.")
+    wind_api_key = None
+
+if wind_api_key:
     wind_speed, wind_deg = get_wind_data(lat, lon, wind_api_key)
-    st.markdown(f"**Wind Speed:** {wind_speed} m/s")
-    st.markdown(f"**Wind Direction:** {wind_deg}°")
+    
+    if wind_speed == 0 and wind_deg == 0:
+        st.warning("⚠️ Wind data could not be retrieved or is zero. Check your API key and location.")
+    else:
+        st.markdown(f"**Wind Speed:** {wind_speed} m/s")
+        st.markdown(f"**Wind Direction:** {wind_deg}°")
+
 
     # Disaster center + radius
     folium.Circle(
