@@ -1,72 +1,78 @@
+# Before running enter: "cd "C:\Users\hanis\New folder\Websites""
+# Then enter: "python -m streamlit run AirfoilSim.py"
+
 import streamlit as st
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
 
-# === NACA generator ===
-def naca4(m, p, t, c=1, n=200):
-    x = np.linspace(0, c, n)
-    yt = 5*t*c*(0.2969*np.sqrt(x/c) - 0.1260*(x/c) - 0.3516*(x/c)**2 
-                 + 0.2843*(x/c)**3 - 0.1015*(x/c)**4)
-    yc = np.where(x < p*c, m/p**2*(2*p*(x/c)-(x/c)**2),
-                            m/(1-p)**2*((1-2*p)+2*p*(x/c)-(x/c)**2))
-    dyc_dx = np.where(x < p*c, 2*m/p**2*(p-(x/c)),
-                                   2*m/(1-p)**2*(p-(x/c)))
-    theta = np.arctan(dyc_dx)
-    xu = x - yt*np.sin(theta)
-    yu = yc + yt*np.cos(theta)
-    xl = x + yt*np.sin(theta)
-    yl = yc - yt*np.cos(theta)
-    return np.concatenate([xu, xl[::-1]]), np.concatenate([yu, yl[::-1]])
+# === 1. Airfoil Data ===
+airfoil_files = {
+    "NACA 2412": "airfoils/NACA2412.dat",
+    "NACA 0012": "airfoils/NACA0012.dat",
+    # Add remaining 8 airfoils here
+}
 
-# === Rotate points ===
-def rotate(x, y, alpha_deg):
+def load_airfoil(filename):
+    data = np.loadtxt(filename, skiprows=1)
+    return data[:,0], data[:,1]
+
+# === 2. Rotate Airfoil for AoA ===
+def rotate_airfoil(x, y, alpha_deg, x_ref=0.25):
     alpha = np.radians(alpha_deg)
-    x_r = x*np.cos(alpha) - y*np.sin(alpha)
-    y_r = x*np.sin(alpha) + y*np.cos(alpha)
-    return x_r, y_r
+    x_shifted = x - x_ref
+    y_shifted = y
+    xr = x_shifted*np.cos(alpha) - y_shifted*np.sin(alpha) + x_ref
+    yr = x_shifted*np.sin(alpha) + y_shifted*np.cos(alpha)
+    return xr, yr
 
-# === UI ===
-st.title("Airfoil Flow Simulator")
+# === 3. UI ===
+st.title("Airfoil Simulator")
 
-airfoil_choice = st.selectbox("Choose Airfoil", ["NACA 2412", "NACA 4412", "NACA 0012", "NACA 4415"])
-aoa = st.slider("Angle of Attack (°)", -10, 15, 5)
-U = st.slider("Freestream Speed", 10, 100, 30)
-cg_choice = st.radio("Center of Gravity Position", ["Front", "Middle", "Back"])
+selected_airfoil = st.selectbox("Select Airfoil", list(airfoil_files.keys()))
+aoa = st.slider("Angle of Attack (°)", -90, 90, 5)
+cg_pos = st.radio("Center of Gravity", ["Front", "Middle", "Back"])
+U = st.slider("Airflow speed", 10, 100, 30)
 
-# === Airfoil Shape ===
-if airfoil_choice.startswith("NACA"):
-    digits = airfoil_choice.split()[1]
-    m, p, t = int(digits[0])/100, int(digits[1])/10, int(digits[2:])/100
-    x, y = naca4(m, p, t)
+# === 4. Load Airfoil ===
+x, y = load_airfoil(airfoil_files[selected_airfoil])
+x, y = rotate_airfoil(x, y, aoa)
+
+# === 5. Determine CG location ===
+if cg_pos=="Front":
+    x_cg = np.min(x) + 0.05*(np.max(x)-np.min(x))
+elif cg_pos=="Middle":
+    x_cg = 0.5*(np.max(x)+np.min(x))
 else:
-    st.error("Non-NACA airfoils need .dat loader")
-    x, y = [0,1], [0,0]
+    x_cg = np.max(x) - 0.05*(np.max(x)-np.min(x))
+# CG y-coordinate: interpolate along chord
+y_cg = np.interp(x_cg, x, y)
 
-# Rotate for AoA
-x, y = rotate(x, y, aoa)
+# === 6. Airflow field ===
+X, Y = np.meshgrid(np.linspace(-0.2,1.2,150), np.linspace(-0.5,0.5,100))
+Vx = U*np.ones_like(X)
+Vy = np.zeros_like(X)
 
-# === Flow field ===
-X, Y = np.meshgrid(np.linspace(-1, 2, 200), np.linspace(-1, 1, 150))
-Vx = U * np.ones_like(X)
-Vy = -0.5*U*np.exp(-20*((X-0.5)**2 + Y**2))
-pressure = np.exp(-20*((X-0.5)**2 + Y**2))
+# Simple mask to avoid arrows inside airfoil
+mask = np.zeros_like(X, dtype=bool)
+for xi, yi in zip(x, y):
+    mask |= (np.abs(X - xi) < 0.02) & (np.abs(Y - yi) < 0.02)
+Vx = np.ma.masked_where(mask, Vx)
+Vy = np.ma.masked_where(mask, Vy)
 
-# === Plot ===
+# === 7. Pressure blobs ===
+pressure_high = np.exp(-50*((Y - 0.05)**2 + (X-0.5)**2))  # above airfoil
+pressure_low = np.exp(-50*((Y + 0.05)**2 + (X-0.5)**2))   # below airfoil
+
+# === 8. Plot ===
 fig, ax = plt.subplots(figsize=(8,4))
-ax.contourf(X, Y, pressure, levels=30, cmap="RdBu_r", alpha=0.7)
-ax.streamplot(X, Y, Vx, Vy, color="white", density=2, linewidth=0.8)
+ax.contourf(X, Y, pressure_high, levels=20, cmap="Reds", alpha=0.5)
+ax.contourf(X, Y, pressure_low, levels=20, cmap="Blues", alpha=0.5)
+ax.streamplot(X, Y, Vx, Vy, color="white", density=1.2, linewidth=0.7)
 
-ax.plot(x, y, "k", linewidth=2)
-
-# CG marker
-if cg_choice == "Front":
-    ax.plot(x.min()+0.1, 0, "ro", label="CG")
-elif cg_choice == "Middle":
-    ax.plot(0.5, 0, "ro", label="CG")
-else:
-    ax.plot(x.max()-0.1, 0, "ro", label="CG")
-
-ax.set_aspect("equal")
-ax.set_title(f"{airfoil_choice} at {aoa}°")
+ax.plot(x, y, 'k', linewidth=2)
+ax.plot(x_cg, y_cg, 'ro', label="CG")
+ax.set_aspect('equal')
+ax.set_title(f"{selected_airfoil} at {aoa}° AoA")
 ax.legend()
 st.pyplot(fig)
+
