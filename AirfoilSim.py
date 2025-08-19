@@ -7,10 +7,12 @@ import matplotlib.pyplot as plt
 
 # === 1. Airfoil Data ===
 airfoil_files = {
-    "NACA 2412": "airfoils/NACA2412.dat",
-    "NACA 0012": "airfoils/NACA0012.dat",
-    # Add remaining 8 airfoils here
+    "NACA 2412": "airfoils/naca2412.dat",
+    "NACA 4412": "airfoils/naca4412.dat",
+    # ...etc.
 }
+    # Add remaining 8 airfoils here
+
 
 def load_airfoil(filename):
     data = np.loadtxt(filename, skiprows=1)
